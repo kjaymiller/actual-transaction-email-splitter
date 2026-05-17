@@ -1,0 +1,13 @@
+services:
+  splitter:
+    build: .
+    image: actual-transaction-email-splitter:local
+    container_name: actual-tx-splitter
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+      - ./config:/config:ro
+    ports:
+      - "8000:8000"
