@@ -1,0 +1,6 @@
+# last 4 digits of the card → Actual account name (resolved via API at
+# startup, cached). Use `default:` for the fallback.
+cards:
+  "1234": "Amazon Visa"
+  "5678": "Joint Checking"
+default: "Amazon Visa"

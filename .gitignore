@@ -8,3 +8,5 @@ dist/
 build/
 *.egg-info/
 data/
+config/*.yml
+!config/*.example.yml
