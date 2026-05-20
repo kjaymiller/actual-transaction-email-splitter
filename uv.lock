@@ -4,7 +4,7 @@ requires-python = ">=3.12"
 
 [[package]]
 name = "actual-transaction-email-splitter"
-version = "0.1.0"
+version = "2026.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "actualpy" },

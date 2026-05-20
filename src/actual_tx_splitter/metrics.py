@@ -12,7 +12,7 @@ REGISTRY = CollectorRegistry()
 
 emails_received = Counter(
     "splitter_emails_received_total",
-    "Webhook payloads accepted (after HMAC + allowlist + dedup)",
+    "Webhook payloads accepted (after basic-auth + allowlist + dedup)",
     registry=REGISTRY,
 )
 splits_posted = Counter(
@@ -39,7 +39,7 @@ dedup_hits = Counter(
 )
 auth_rejects = Counter(
     "splitter_auth_rejects_total",
-    "Webhook payload rejected (HMAC mismatch or sender not allowlisted)",
+    "Webhook payload rejected (basic-auth failure or sender not allowlisted)",
     ["reason"],
     registry=REGISTRY,
 )

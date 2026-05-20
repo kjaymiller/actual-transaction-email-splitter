@@ -12,7 +12,7 @@ transaction by hand in Actual is the part that hurts.
 ## How it works
 
 ```
-sender → forward → CloudMailin (inbound MX) ──HTTPS POST (HMAC)──▶ this service
+sender → forward → CloudMailin (inbound MX) ──HTTPS POST (Basic Auth)──▶ this service
                                                                        │
                                                   parse → categorize ──┤
                                                                        ▼
@@ -20,8 +20,8 @@ sender → forward → CloudMailin (inbound MX) ──HTTPS POST (HMAC)──▶
 ```
 
 1. CloudMailin receives mail at an MX you control and POSTs the parsed
-   email as JSON (HMAC-signed) to `POST /webhook/cloudmailin`.
-2. The service verifies the signature, allowlists the `From:` address,
+   email as JSON to `POST /webhook/cloudmailin` with HTTP Basic Auth.
+2. The service verifies the credentials, allowlists the `From:` address,
    dedups by `Message-ID`, and archives the raw payload.
 3. A vendor dispatcher picks a parser by `From:` domain + subject and
    produces a `ParsedOrder` (vendor, order_id, total, card_last4, line
@@ -40,7 +40,8 @@ overlay and in someone else's deployment.
 
 | Variable | Required | Default | Notes |
 |---|---|---|---|
-| `CLOUDMAILIN_HMAC_SECRET` | yes | — | Shared secret configured in CloudMailin |
+| `CLOUDMAILIN_BASIC_USER` | yes | — | Username configured in CloudMailin's target Basic Auth |
+| `CLOUDMAILIN_BASIC_PASS` | yes | — | Password configured in CloudMailin's target Basic Auth |
 | `ACTUAL_URL` | yes | — | e.g. `http://actualbudget:5006` |
 | `ACTUAL_PASSWORD` | yes | — | Actual server password |
 | `ACTUAL_BUDGET_SYNC_ID` | yes | — | Sync ID of the budget file |

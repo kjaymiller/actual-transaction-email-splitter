@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import hashlib
+import base64
 import hmac
 import json
 import logging
@@ -38,12 +38,17 @@ def _archive(raw: bytes, message_id: str, settings) -> Path:
     return path
 
 
-def _verify_hmac(secret: str, raw: bytes, given: str | None) -> bool:
-    """CloudMailin signs with HMAC-SHA256 over the raw request body."""
-    if not given:
+def _verify_basic_auth(expected_user: str, expected_pass: str, header: str | None) -> bool:
+    if not header or not header.lower().startswith("basic "):
         return False
-    expected = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, given.strip())
+    try:
+        decoded = base64.b64decode(header.split(None, 1)[1].strip()).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    user, sep, pw = decoded.partition(":")
+    if not sep:
+        return False
+    return hmac.compare_digest(user, expected_user) and hmac.compare_digest(pw, expected_pass)
 
 
 def _message_id(email: dict) -> str:
@@ -61,15 +66,17 @@ def _from_address(email: dict) -> str | None:
 @router.post("/webhook/cloudmailin")
 async def cloudmailin(
     request: Request,
-    x_cloudmailin_signature: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ):
     raw = await request.body()
     settings = get_settings()
 
-    if not _verify_hmac(settings.cloudmailin_hmac_secret, raw, x_cloudmailin_signature):
-        metrics.auth_rejects.labels(reason="hmac").inc()
+    if not _verify_basic_auth(
+        settings.cloudmailin_basic_user, settings.cloudmailin_basic_pass, authorization
+    ):
+        metrics.auth_rejects.labels(reason="basic_auth").inc()
         metrics.push(settings.pushgateway_url)
-        raise HTTPException(status_code=401, detail="invalid signature")
+        raise HTTPException(status_code=401, detail="invalid credentials")
 
     try:
         email = json.loads(raw)

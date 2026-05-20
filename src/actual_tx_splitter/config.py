@@ -11,7 +11,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    cloudmailin_hmac_secret: str
+    cloudmailin_basic_user: str
+    cloudmailin_basic_pass: str
 
     actual_url: str
     actual_password: str
