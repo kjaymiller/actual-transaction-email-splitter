@@ -26,6 +26,27 @@ def test_does_not_match_random():
     assert not p.matches(_email(subject="Hi", sender="friend@example.com"))
 
 
+def test_matches_forwarded_ordered_subject():
+    p = AmazonParser()
+    assert p.matches(_email(subject='Fwd: Ordered: "Coco Coir 650gm Bricks..."', sender="me@gmail.com"))
+
+
+def test_matches_capitalized_header_keys():
+    p = AmazonParser()
+    email = {
+        "headers": {"From": "auto-confirm@amazon.com", "Subject": "Your order"},
+        "plain": "",
+        "html": "",
+    }
+    assert p.matches(email)
+
+
+def test_matches_forwarded_body_marker():
+    p = AmazonParser()
+    body = "---------- Forwarded message ---------\nFrom: Amazon.com <auto-confirm@amazon.com>\nOrder #112-0"
+    assert p.matches(_email(plain=body, subject="Fwd: heads up", sender="me@gmail.com"))
+
+
 def test_extracts_order_id_total_card():
     body = """
     Your order has been placed.

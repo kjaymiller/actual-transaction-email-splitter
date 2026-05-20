@@ -43,11 +43,19 @@ class AmazonParser:
 
     def matches(self, email: dict) -> bool:
         headers = email.get("headers") or {}
-        from_addr = (headers.get("from") or "").lower()
-        subject = (headers.get("subject") or "").lower()
+        from_addr = (headers.get("from") or headers.get("From") or "").lower()
+        subject = (headers.get("subject") or headers.get("Subject") or "").lower()
         if "amazon.com" in from_addr or "amazon.co" in from_addr:
             return True
-        if "your amazon" in subject and "order" in subject:
+        # Strip "fwd:" / "re:" prefixes that pile up on forwards.
+        subj = re.sub(r"^(?:\s*(?:fwd|re|fw):\s*)+", "", subject)
+        if subj.startswith("ordered:"):
+            return True
+        if "your amazon" in subj and "order" in subj:
+            return True
+        # Forwarded emails: original Amazon sender is in the body.
+        body = _text_from_email(email).lower()
+        if "auto-confirm@amazon.com" in body or "shipment-tracking@amazon" in body:
             return True
         return False
 
