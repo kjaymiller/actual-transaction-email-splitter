@@ -17,6 +17,7 @@ from actual.queries import (
     create_splits,
     create_transaction,
     get_account,
+    get_accounts,
     get_categories,
     get_transactions,
 )
@@ -51,6 +52,34 @@ class ActualClient:
         with self._open() as a:
             cats = get_categories(a.session)
             return {c.name: c.id for c in cats}
+
+    def list_accounts(self) -> list[dict]:
+        """Return [{name, id, off_budget, closed}] for every account in the budget."""
+        with self._open() as a:
+            return [
+                {
+                    "name": ac.name,
+                    "id": ac.id,
+                    "off_budget": bool(getattr(ac, "offbudget", 0)),
+                    "closed": bool(getattr(ac, "closed", 0)),
+                }
+                for ac in get_accounts(a.session)
+            ]
+
+    def list_categories(self) -> list[dict]:
+        """Return [{name, id, group}] for every category in the budget."""
+        with self._open() as a:
+            out = []
+            for c in get_categories(a.session):
+                group = getattr(c, "group", None)
+                out.append(
+                    {
+                        "name": c.name,
+                        "id": c.id,
+                        "group": (group.name if group is not None else None),
+                    }
+                )
+            return out
 
     def recent_transactions(self, account_name: str, days: int):
         """Return recent (date, payee, notes, amount, category_id) tuples for matching."""

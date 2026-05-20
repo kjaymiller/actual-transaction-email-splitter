@@ -6,12 +6,26 @@ from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from .actual_client import ActualClient
 from .config import get_settings
 from .metrics import REGISTRY
 from .webhook import router as webhook_router
 
-app = FastAPI(title="actual-transaction-email-splitter", version="0.1.0")
+app = FastAPI(title="actual-transaction-email-splitter", version="2026.5.2")
 app.include_router(webhook_router)
+
+
+@app.get("/actual/accounts")
+def actual_accounts():
+    """List all accounts in the budget. Tailnet-only — public route at
+    splitter-public.kjaymiller.dev does not match this path."""
+    return ActualClient(get_settings()).list_accounts()
+
+
+@app.get("/actual/categories")
+def actual_categories():
+    """List all categories in the budget. Tailnet-only."""
+    return ActualClient(get_settings()).list_categories()
 
 
 @app.on_event("startup")
