@@ -124,30 +124,27 @@ class ActualClient:
             if account is None:
                 raise ValueError(f"Actual account not found: {account_name!r}")
 
-            parent = create_transaction(
-                s=a.session,
-                date=when,
-                account=account,
-                payee=payee,
-                notes=notes,
-                amount=-order.total,  # debit
-            )
-
-            # actualpy's create_splits takes a list of dicts mirroring the
-            # parent (sans account). Amounts must sum to parent.amount.
-            splits = [
-                {
-                    "amount": -li.amount,
-                    "category": cat_id,
-                    "notes": li.description,
-                }
+            # actualpy's create_splits builds the parent from the sum of
+            # its child transactions, so we create the children first
+            # (each as a normal transaction) and hand the list to it.
+            cat_by_id = {c.id: c for c in get_categories(a.session)}
+            children = [
+                create_transaction(
+                    s=a.session,
+                    date=when,
+                    account=account,
+                    payee=payee,
+                    notes=li.description,
+                    category=cat_by_id.get(cat_id) if cat_id else None,
+                    amount=-li.amount,
+                )
                 for li, cat_id in zip(order.line_items, line_categories, strict=True)
             ]
-            create_splits(a.session, transaction=parent, splits=splits)
+            parent = create_splits(a.session, transactions=children, notes=notes)
             a.commit()
 
             n_cat = sum(1 for c in line_categories if c)
-            return PostResult(transaction_id=parent.id, n_subs=len(splits), n_categorized=n_cat)
+            return PostResult(transaction_id=parent.id, n_subs=len(children), n_categorized=n_cat)
 
 
 def _payee_for(vendor: str) -> str:
