@@ -15,10 +15,11 @@ CREATE TABLE IF NOT EXISTS processed (
     archive_path TEXT,
     content_hash TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_processed_content_hash ON processed(content_hash);
 """
 
-# Forward-compat: older DBs may not have content_hash column yet.
+# Run after SCHEMA. The index must live here, not in SCHEMA: pre-migration DBs
+# lack the content_hash column, and creating the index inside executescript
+# would abort the whole script before the ALTER could add the column.
 MIGRATIONS = [
     "ALTER TABLE processed ADD COLUMN content_hash TEXT",
     "CREATE INDEX IF NOT EXISTS idx_processed_content_hash ON processed(content_hash)",
