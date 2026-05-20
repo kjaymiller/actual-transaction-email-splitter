@@ -20,6 +20,9 @@ class ParsedOrder:
     line_items: list[LineItem] = field(default_factory=list)
     card_last4: str | None = None
     order_date: date | None = None
+    # Short human-friendly description (typically the first item name) — used
+    # for the parent transaction's notes so Actual's list view is scannable.
+    summary: str | None = None
 
     def reconciles(self, tolerance_cents: int = 5) -> bool:
         """Sum of line items should equal total within a few cents (rounding)."""

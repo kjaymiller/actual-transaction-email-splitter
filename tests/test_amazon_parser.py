@@ -47,6 +47,21 @@ def test_matches_forwarded_body_marker():
     assert p.matches(_email(plain=body, subject="Fwd: heads up", sender="me@gmail.com"))
 
 
+def test_summary_extracted_from_subject():
+    p = AmazonParser()
+    body = "Order # 111-2222222-3333333\nWidget\n$5.00\nGrand Total: $5.00"
+    o = p.parse(_email(plain=body, subject='Fwd: Ordered: "Coco Coir 650gm Bricks..."'))
+    assert o.summary == "Coco Coir 650gm Bricks…"
+
+
+def test_order_id_parsed_through_bidi_marks():
+    # Amazon emails interleave a U+202B (RTL embedding) between "Order #" and digits.
+    p = AmazonParser()
+    body = "Order # ‫111-7767326-0899427\nWidget\n$5.00\nGrand Total: $5.00"
+    o = p.parse(_email(plain=body, subject="Your Amazon.com order"))
+    assert o.order_id == "111-7767326-0899427"
+
+
 def test_extracts_order_id_total_card():
     body = """
     Your order has been placed.

@@ -1,6 +1,6 @@
 [project]
 name = "actual-transaction-email-splitter"
-version = "2026.5.3"
+version = "2026.5.4"
 description = "Parse forwarded order-confirmation emails into split transactions in Actual Budget."
 readme = "README.md"
 requires-python = ">=3.12"

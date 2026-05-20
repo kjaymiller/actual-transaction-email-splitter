@@ -117,7 +117,10 @@ class ActualClient:
         assert len(line_categories) == len(order.line_items)
         when = order_date or order.order_date or date.today()
         payee = _payee_for(order.vendor)
-        notes = f"Order #{order.order_id} (auto-split)"
+        if order.summary:
+            notes = f"{order.summary} — Order #{order.order_id}"
+        else:
+            notes = f"Order #{order.order_id} (auto-split)"
 
         with self._open() as a:
             account = get_account(a.session, name=account_name)
