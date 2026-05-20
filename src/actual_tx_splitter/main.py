@@ -11,7 +11,7 @@ from .config import get_settings
 from .metrics import REGISTRY
 from .webhook import router as webhook_router
 
-app = FastAPI(title="actual-transaction-email-splitter", version="2026.5.4")
+app = FastAPI(title="actual-transaction-email-splitter", version="2026.5.5")
 app.include_router(webhook_router)
 
 

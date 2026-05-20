@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import hmac
 import json
 import logging
@@ -63,6 +64,28 @@ def _from_address(email: dict) -> str | None:
     return addr or None
 
 
+_FWD_PREFIX_RE = re.compile(r"^(?:\s*(?:fwd|re|fw):\s*)+", re.I)
+_WS_RE = re.compile(r"\s+")
+
+
+def _content_hash(email: dict) -> str:
+    """Stable hash over fields that survive re-forwarding.
+
+    Spark and other mail clients regenerate Message-ID on each forward, so
+    Message-ID dedup alone misses retries. Hash sender + normalized subject +
+    whitespace-collapsed body instead. The body is the highest-entropy field;
+    sender + subject just disambiguate identical-body emails.
+    """
+    h = email.get("headers") or {}
+    sender = (_from_address(email) or "").lower()
+    subject = (h.get("subject") or h.get("Subject") or "").strip()
+    subject = _FWD_PREFIX_RE.sub("", subject).lower()
+    body = (email.get("plain") or "") or (email.get("html") or "")
+    body = _WS_RE.sub(" ", body).strip()
+    payload = f"{sender}\n{subject}\n{body}".encode("utf-8", errors="replace")
+    return hashlib.sha256(payload).hexdigest()
+
+
 @router.post("/webhook/cloudmailin")
 async def cloudmailin(
     request: Request,
@@ -92,11 +115,18 @@ async def cloudmailin(
         raise HTTPException(status_code=403, detail="sender not allowlisted")
 
     message_id = _message_id(email) or f"no-id-{datetime.now(timezone.utc).isoformat()}"
+    content_hash = _content_hash(email)
     store = Store(settings.db_path)
     if store.seen(message_id):
         metrics.dedup_hits.inc()
         metrics.push(settings.pushgateway_url)
-        return {"status": "duplicate", "message_id": message_id}
+        return {"status": "duplicate", "message_id": message_id, "reason": "message_id"}
+    prior = store.seen_by_hash(content_hash)
+    if prior:
+        metrics.dedup_hits.inc()
+        metrics.push(settings.pushgateway_url)
+        log.info("dedup by content_hash: this msg_id=%s matches prior msg_id=%s", message_id, prior)
+        return {"status": "duplicate", "message_id": message_id, "matched_message_id": prior, "reason": "content_hash"}
 
     archive_path = _archive(raw, message_id, settings)
     metrics.emails_received.inc()
@@ -122,6 +152,7 @@ async def cloudmailin(
             total_cents=None,
             actual_tx_id=None,
             archive_path=str(archive_path),
+            content_hash=content_hash,
         )
         raise HTTPException(status_code=422, detail="no parser matched")
 
@@ -156,6 +187,7 @@ async def cloudmailin(
         total_cents=int(order.total * 100),
         actual_tx_id=result.transaction_id,
         archive_path=str(archive_path),
+        content_hash=content_hash,
     )
     metrics.splits_posted.labels(vendor=parser.name).inc()
     metrics.push(settings.pushgateway_url)
