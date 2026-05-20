@@ -131,6 +131,28 @@ class ActualClient:
             # its child transactions, so we create the children first
             # (each as a normal transaction) and hand the list to it.
             cat_by_id = {c.id: c for c in get_categories(a.session)}
+
+            # Single-item orders don't need a split — a one-child "split" is
+            # just visual noise in Actual versus a flat transaction.
+            if len(order.line_items) == 1:
+                li = order.line_items[0]
+                cat_id = line_categories[0]
+                tx = create_transaction(
+                    s=a.session,
+                    date=when,
+                    account=account,
+                    payee=payee,
+                    notes=notes,
+                    category=cat_by_id.get(cat_id) if cat_id else None,
+                    amount=-li.amount,
+                )
+                a.commit()
+                return PostResult(
+                    transaction_id=tx.id,
+                    n_subs=1,
+                    n_categorized=1 if cat_id else 0,
+                )
+
             children = [
                 create_transaction(
                     s=a.session,
