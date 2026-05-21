@@ -29,6 +29,14 @@ class Settings(BaseSettings):
 
     lookback_days: int = 180
 
+    # Match an incoming order against an already-imported bank transaction
+    # in the target account before creating a new one. The window starts at
+    # the order date and runs forward by this many days; the amount must be
+    # within `match_tolerance_cents` of the order total (covers tax/shipping
+    # drift).
+    match_window_days: int = 14
+    match_tolerance_cents: int = 100
+
     log_level: str = "INFO"
 
 

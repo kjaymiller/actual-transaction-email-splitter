@@ -167,12 +167,30 @@ async def cloudmailin(
     recent = client.recent_transactions(account_name, days=settings.lookback_days)
     line_categories = guess_all(order, recent)
 
+    existing = client.find_existing_match(
+        account_name=account_name,
+        order=order,
+        window_days=settings.match_window_days,
+        tolerance_cents=settings.match_tolerance_cents,
+    )
     try:
-        result = client.post_split(
-            account_name=account_name,
-            order=order,
-            line_categories=line_categories,
-        )
+        if existing is not None:
+            log.info(
+                "attaching order #%s to existing tx %s (date=%s amount=%s)",
+                order.order_id, existing.tx_id, existing.date, existing.amount,
+            )
+            result = client.attach_split_to_existing(
+                account_name=account_name,
+                existing_tx_id=existing.tx_id,
+                order=order,
+                line_categories=line_categories,
+            )
+        else:
+            result = client.post_split(
+                account_name=account_name,
+                order=order,
+                line_categories=line_categories,
+            )
     except Exception as e:
         log.exception("actual post failed")
         metrics.parse_failed.labels(vendor=parser.name, reason="actual_post").inc()
@@ -211,4 +229,5 @@ async def cloudmailin(
         "account": account_name,
         "subs": result.n_subs,
         "categorized": result.n_categorized,
+        "attached_to_existing": result.attached_to_existing,
     }

@@ -16,6 +16,7 @@ from actual import Actual
 from actual.queries import (
     create_splits,
     create_transaction,
+    create_transaction_from_ids,
     get_account,
     get_accounts,
     get_categories,
@@ -33,6 +34,18 @@ class PostResult:
     transaction_id: str
     n_subs: int
     n_categorized: int
+    attached_to_existing: bool = False
+
+
+@dataclass
+class ExistingMatch:
+    tx_id: str
+    date: date
+    amount: Decimal  # signed, in major units (debits negative)
+    payee: str | None
+    notes: str | None
+    is_parent: bool
+    is_child: bool
 
 
 class ActualClient:
@@ -100,6 +113,148 @@ class ActualClient:
                     }
                 )
         return out
+
+    def find_existing_match(
+        self,
+        *,
+        account_name: str,
+        order: ParsedOrder,
+        window_days: int,
+        tolerance_cents: int,
+    ) -> ExistingMatch | None:
+        """Look for a bank-imported transaction that already covers this order.
+
+        Match rule: same account, date in [order_date, order_date + window_days],
+        amount within `tolerance_cents` of -order.total (debit). If multiple
+        candidates exist, prefer ones that aren't already a split parent (no
+        sense breaking up someone else's split) and pick the closest in amount,
+        then closest in date.
+        """
+        if order.order_date is None:
+            return None
+        start = order.order_date
+        end = order.order_date + timedelta(days=window_days)
+        target = -order.total
+        tol = Decimal(tolerance_cents) / Decimal(100)
+
+        candidates: list[ExistingMatch] = []
+        with self._open() as a:
+            account = get_account(a.session, name=account_name)
+            if account is None:
+                return None
+            for t in get_transactions(a.session, account=account, start_date=start, end_date=end):
+                if t.is_child or t.is_parent:
+                    continue  # leave existing splits alone
+                amt = Decimal(t.get_amount())
+                if abs(amt - target) > tol:
+                    continue
+                candidates.append(
+                    ExistingMatch(
+                        tx_id=t.id,
+                        date=t.get_date(),
+                        amount=amt,
+                        payee=(t.payee.name if t.payee else None),
+                        notes=t.notes,
+                        is_parent=bool(t.is_parent),
+                        is_child=bool(t.is_child),
+                    )
+                )
+
+        if not candidates:
+            return None
+        candidates.sort(
+            key=lambda m: (
+                abs(m.amount - target),
+                abs((m.date - order.order_date).days),
+            )
+        )
+        return candidates[0]
+
+    def attach_split_to_existing(
+        self,
+        *,
+        account_name: str,
+        existing_tx_id: str,
+        order: ParsedOrder,
+        line_categories: list[str | None],
+    ) -> PostResult:
+        """Convert an existing transaction into a split parent and add children.
+
+        The existing tx keeps its id, date, amount, and cleared/imported state;
+        we only flip is_parent and rewrite payee/notes, then create children
+        pointing at it via parent_id.
+        """
+        assert len(line_categories) == len(order.line_items)
+        payee = _payee_for(order.vendor)
+        if order.summary:
+            notes = f"{order.summary} — Order #{order.order_id}"
+        else:
+            notes = f"Order #{order.order_id} (auto-split)"
+
+        with self._open() as a:
+            account = get_account(a.session, name=account_name)
+            if account is None:
+                raise ValueError(f"Actual account not found: {account_name!r}")
+
+            existing = next(
+                (t for t in get_transactions(a.session, account=account) if t.id == existing_tx_id),
+                None,
+            )
+            if existing is None:
+                raise ValueError(f"existing tx not found: {existing_tx_id}")
+            if existing.is_child:
+                raise ValueError(f"existing tx {existing_tx_id} is already a split child")
+
+            cat_by_id = {c.id: c for c in get_categories(a.session)}
+            existing.is_parent = 1
+            existing.is_child = 0
+            existing.notes = notes
+
+            # Single-item orders don't need children — the parent alone covers it.
+            # But we already promised a split; create one child so the structure
+            # matches the order. Caller can decide.
+            for li, cat_id in zip(order.line_items, line_categories, strict=True):
+                child = create_transaction_from_ids(
+                    a.session,
+                    existing.get_date(),
+                    existing.acct,
+                    None,
+                    li.description,
+                    cat_id if cat_id else None,
+                    -li.amount,
+                )
+                child.is_parent = 0
+                child.is_child = 1
+                child.parent_id = existing.id
+                # Children inherit the parent's payee for display
+                if existing.payee_id:
+                    child.payee_id = existing.payee_id
+            a.commit()
+
+            n_cat = sum(1 for c in line_categories if c)
+            return PostResult(
+                transaction_id=existing_tx_id,
+                n_subs=len(order.line_items),
+                n_categorized=n_cat,
+                attached_to_existing=True,
+            )
+
+    def delete_transaction(self, tx_id: str) -> bool:
+        """Delete a transaction (and its children, if it's a split parent)."""
+        with self._open() as a:
+            tx = next(
+                (t for t in get_transactions(a.session, include_deleted=False) if t.id == tx_id),
+                None,
+            )
+            if tx is None:
+                return False
+            if tx.is_parent:
+                for t in get_transactions(a.session, include_deleted=False):
+                    if t.parent_id == tx_id:
+                        t.delete()
+            tx.delete()
+            a.commit()
+            return True
 
     def post_split(
         self,
