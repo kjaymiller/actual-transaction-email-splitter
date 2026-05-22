@@ -9,7 +9,9 @@ out, we still post a single-line transaction for the total.
 from __future__ import annotations
 
 import re
+from datetime import date
 from decimal import Decimal
+from email.utils import parsedate_to_datetime
 
 from bs4 import BeautifulSoup
 
@@ -25,6 +27,32 @@ INVISIBLE_RE = re.compile(r"[​-‏‪-‮⁦-⁩﻿]")
 CARD_LAST4_RE = re.compile(r"ending\s+in\s+(\d{4})", re.I)
 TOTAL_RE = re.compile(r"(?:Order\s+Total|Grand\s+Total|Total\s+for\s+This\s+Order)[^$]*\$\s*([0-9,]+\.\d{2})", re.I)
 PRICE_RE = re.compile(r"\$\s*([0-9,]+\.\d{2})")
+
+_MONTHS = {
+    "january": 1, "jan": 1,
+    "february": 2, "feb": 2,
+    "march": 3, "mar": 3,
+    "april": 4, "apr": 4,
+    "may": 5,
+    "june": 6, "jun": 6,
+    "july": 7, "jul": 7,
+    "august": 8, "aug": 8,
+    "september": 9, "sept": 9, "sep": 9,
+    "october": 10, "oct": 10,
+    "november": 11, "nov": 11,
+    "december": 12, "dec": 12,
+}
+
+# "Order Placed: October 15, 2025", "Ordered on October 15, 2025",
+# "Order Date: Oct 15, 2025"
+BODY_DATE_RE = re.compile(
+    r"(?:Order\s+(?:Placed|Date)|Ordered\s+on)\s*:?\s*"
+    r"([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})",
+    re.I,
+)
+# A "Date:" header line embedded in a forwarded body (Spark/Gmail keep the
+# original header in the quoted block).
+BODY_RFC_DATE_RE = re.compile(r"^\s*Date:\s*(.+)$", re.I | re.M)
 
 
 def _money(s: str) -> Decimal:
@@ -76,6 +104,7 @@ class AmazonParser:
         total = self._extract_total(text)
         line_items = self._extract_line_items(text, total)
         summary = self._summary_from_subject(subject) or self._summary_from_items(line_items)
+        order_date = self._extract_order_date(text, headers)
         return ParsedOrder(
             vendor="amazon",
             order_id=order_id,
@@ -83,7 +112,38 @@ class AmazonParser:
             card_last4=card_last4,
             line_items=line_items,
             summary=summary,
+            order_date=order_date,
         )
+
+    @staticmethod
+    def _extract_order_date(text: str, headers: dict) -> date | None:
+        m = BODY_DATE_RE.search(text)
+        if m:
+            mon = _MONTHS.get(m.group(1).lower())
+            if mon:
+                try:
+                    return date(int(m.group(3)), mon, int(m.group(2)))
+                except ValueError:
+                    pass
+        # Embedded "Date:" header in a forwarded body — prefer the *first* one,
+        # which is the forward's wrapper around the original message.
+        for raw in BODY_RFC_DATE_RE.findall(text):
+            try:
+                dt = parsedate_to_datetime(raw.strip())
+            except (TypeError, ValueError):
+                continue
+            if dt is not None:
+                return dt.date()
+        # Fall back to the outer envelope Date: header.
+        raw = headers.get("date") or headers.get("Date")
+        if raw:
+            try:
+                dt = parsedate_to_datetime(raw)
+                if dt is not None:
+                    return dt.date()
+            except (TypeError, ValueError):
+                pass
+        return None
 
     @staticmethod
     def _summary_from_subject(subject: str) -> str | None:

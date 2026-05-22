@@ -10,3 +10,4 @@ build/
 data/
 config/*.yml
 !config/*.example.yml
+install.sh

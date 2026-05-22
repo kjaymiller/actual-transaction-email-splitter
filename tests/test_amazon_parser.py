@@ -1,11 +1,21 @@
+from datetime import date
 from decimal import Decimal
 
 from actual_tx_splitter.parsers.amazon import AmazonParser
 
 
-def _email(plain: str = "", html: str = "", subject: str = "", sender: str = "auto-confirm@amazon.com") -> dict:
+def _email(
+    plain: str = "",
+    html: str = "",
+    subject: str = "",
+    sender: str = "auto-confirm@amazon.com",
+    date_header: str | None = None,
+) -> dict:
+    headers: dict = {"from": sender, "subject": subject}
+    if date_header is not None:
+        headers["date"] = date_header
     return {
-        "headers": {"from": sender, "subject": subject},
+        "headers": headers,
         "plain": plain,
         "html": html,
     }
@@ -80,6 +90,49 @@ def test_extracts_order_id_total_card():
     assert order.total == Decimal("19.50")
     assert len(order.line_items) >= 1
     assert sum((li.amount for li in order.line_items), Decimal(0)) - order.total < Decimal("0.50")
+
+
+def test_extracts_order_date_from_body_order_placed():
+    body = """
+    Order Placed: October 15, 2025
+    Order #111-2222222-3333333
+    Widget
+    $5.00
+    Order Total: $5.00
+    """
+    o = AmazonParser().parse(_email(plain=body))
+    assert o.order_date == date(2025, 10, 15)
+
+
+def test_extracts_order_date_from_body_ordered_on():
+    body = "Ordered on Oct 3, 2025\nOrder #111-2222222-3333333\nWidget\n$5.00\nOrder Total: $5.00"
+    o = AmazonParser().parse(_email(plain=body))
+    assert o.order_date == date(2025, 10, 3)
+
+
+def test_extracts_order_date_from_embedded_forward_date_header():
+    body = (
+        "---------- Forwarded message ---------\n"
+        "From: Amazon.com <auto-confirm@amazon.com>\n"
+        "Date: Wed, 15 Oct 2025 09:21:33 -0700\n"
+        "Subject: Your Amazon.com order\n"
+        "\n"
+        "Order #111-2222222-3333333\nWidget\n$5.00\nGrand Total: $5.00\n"
+    )
+    o = AmazonParser().parse(_email(plain=body, subject="Fwd: Your Amazon.com order", sender="me@gmail.com"))
+    assert o.order_date == date(2025, 10, 15)
+
+
+def test_falls_back_to_envelope_date_header():
+    body = "Order #111-2222222-3333333\nWidget\n$5.00\nGrand Total: $5.00"
+    o = AmazonParser().parse(_email(plain=body, date_header="Wed, 15 Oct 2025 09:21:33 -0700"))
+    assert o.order_date == date(2025, 10, 15)
+
+
+def test_order_date_none_when_no_date_available():
+    body = "Order #111-2222222-3333333\nWidget\n$5.00\nGrand Total: $5.00"
+    o = AmazonParser().parse(_email(plain=body))
+    assert o.order_date is None
 
 
 def test_falls_back_to_single_line_when_unparseable():
